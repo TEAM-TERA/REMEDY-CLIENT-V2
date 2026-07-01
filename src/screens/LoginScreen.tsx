@@ -14,25 +14,15 @@ import { AppBackground } from '@/components/AppBackground';
 import { DriftGlow } from '@/components/anim/DriftGlow';
 import { AppleDark, YouTubePlay } from '@/components/Icons';
 import { colors, font } from '@/theme/tokens';
-import { useAuthStore } from '@/store/useAuthStore';
-import { useAppStore } from '@/store/useAppStore';
 import type { RootStackParamList } from '@/navigation/types';
-import type { ServiceId } from '@/types';
 
 export default function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const signInMock = useAuthStore((s) => s.signInMock);
-  const connectService = useAppStore((s) => s.connectService);
 
-  // Mock sign-in (dummy data). Spotify *search* needs no login (Client
-  // Credentials); user OAuth login is reserved for M3.5 playback (App Remote).
-  const onMock = (via: ServiceId) => {
-    signInMock(via);
-    // keep the app store (which Settings/Map read) consistent with the chosen
-    // service so it becomes the connected + default playback service.
-    connectService(via);
-    navigation.reset({ index: 0, routes: [{ name: 'Map' }] });
-  };
+  // Email auth is the working path locally; OAuth2 (google/kakao/naver) needs
+  // provider creds configured on the backend, so the social buttons route into
+  // the email flow until those are set.
+  const goAuth = (mode: 'login' | 'register') => navigation.navigate('Auth', { mode });
 
   return (
     <View style={styles.root}>
@@ -56,39 +46,40 @@ export default function LoginScreen() {
 
         <View style={{ gap: 11 }}>
           <Pressable
-            onPress={() => onMock('spotify')}
+            onPress={() => goAuth('register')}
             accessibilityRole="button"
-            accessibilityLabel="Spotify로 계속하기"
-            style={[styles.btn, { backgroundColor: colors.spotify }]}
+            accessibilityLabel="이메일로 시작하기"
+            style={[styles.btn, { backgroundColor: colors.pink }]}
           >
-            <View style={styles.spotifyMark}>
-              <View style={styles.spotifyDot} />
-            </View>
-            <Text style={[styles.btnLabel, { color: colors.spotifyText }]}>Spotify로 계속하기</Text>
-          </Pressable>
-
-          <Pressable onPress={() => onMock('apple')} style={[styles.btn, { backgroundColor: '#fff' }]}>
-            <AppleDark size={20} />
-            <Text style={[styles.btnLabel, { color: '#111' }]}>Apple Music으로 계속하기</Text>
+            <Text style={[styles.btnLabel, { color: '#2a1530' }]}>이메일로 시작하기</Text>
           </Pressable>
 
           <Pressable
-            onPress={() => onMock('youtube')}
-            style={[styles.btn, { backgroundColor: 'rgba(255,255,255,0.07)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }]}
+            onPress={() => goAuth('login')}
+            accessibilityRole="button"
+            accessibilityLabel="로그인"
+            style={[styles.btn, { backgroundColor: 'rgba(255,255,255,0.07)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', justifyContent: 'center' }]}
           >
-            <YouTubePlay size={22} />
-            <Text style={[styles.btnLabel, { color: '#fff' }]}>YouTube Music으로 계속하기</Text>
+            <Text style={[styles.btnLabel, { color: '#fff' }]}>이미 계정이 있어요 · 로그인</Text>
           </Pressable>
 
           <View style={styles.dividerRow}>
             <View style={styles.divider} />
-            <Text style={styles.dividerText}>또는</Text>
+            <Text style={styles.dividerText}>소셜 로그인</Text>
             <View style={styles.divider} />
           </View>
 
-          <Pressable onPress={() => onMock('spotify')} style={{ alignItems: 'center' }}>
-            <Text style={styles.emailLink}>이메일로 가입 / 로그인</Text>
-          </Pressable>
+          <View style={styles.socialRow}>
+            <Pressable onPress={() => goAuth('login')} style={[styles.socialBtn, { backgroundColor: colors.spotify }]} accessibilityLabel="Spotify로 계속하기">
+              <View style={styles.spotifyMark}><View style={styles.spotifyDot} /></View>
+            </Pressable>
+            <Pressable onPress={() => goAuth('login')} style={[styles.socialBtn, { backgroundColor: '#fff' }]} accessibilityLabel="Apple로 계속하기">
+              <AppleDark size={20} />
+            </Pressable>
+            <Pressable onPress={() => goAuth('login')} style={[styles.socialBtn, { backgroundColor: 'rgba(255,255,255,0.07)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }]} accessibilityLabel="YouTube로 계속하기">
+              <YouTubePlay size={22} />
+            </Pressable>
+          </View>
 
           <Text style={styles.terms}>계속 진행하면 이용약관과 개인정보 처리방침에{'\n'}동의하는 것으로 간주됩니다.</Text>
         </View>
@@ -111,6 +102,7 @@ const styles = StyleSheet.create({
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 8 },
   divider: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.12)' },
   dividerText: { fontFamily: font.regular, fontSize: 12, color: 'rgba(255,255,255,0.35)' },
-  emailLink: { fontFamily: font.regular, fontSize: 14, color: 'rgba(255,255,255,0.78)', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.3)', paddingBottom: 2 },
+  socialRow: { flexDirection: 'row', gap: 11, justifyContent: 'center' },
+  socialBtn: { flex: 1, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   terms: { fontFamily: font.regular, textAlign: 'center', marginTop: 14, fontSize: 11, lineHeight: 18, color: 'rgba(255,255,255,0.3)' },
 });

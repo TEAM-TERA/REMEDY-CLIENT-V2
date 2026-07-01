@@ -1,11 +1,15 @@
 /**
- * Main / Map — README §4.2. Full-screen Google map (RealMap, M2) with floating
- * top bar, right-side now-playing disc, and bottom dock (profile + recenter +
- * 드랍 CTA). Drop markers, user dot, and the two display variants live in RealMap.
+ * Main / Map — full-screen Google map (RealMap) with floating top bar, a
+ * notifications bell (unread badge), right-side now-playing disc, and the bottom
+ * dock (profile + recenter + 드랍 CTA).
+ *
+ * On focus it refreshes location → nearby drops + my likes (backend). Pin taps
+ * branch by drop type: MUSIC selects (disc → player), VOTE opens the vote screen,
+ * PLAYLIST plays the drop's tracks in the player.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,10 +19,11 @@ import { Toast } from '@/components/anim/Toast';
 import { Avatar } from '@/components/Avatar';
 import { GlassView } from '@/components/GlassView';
 import { SignatureGradient } from '@/components/Gradient';
-import { ChevronDown, DropMark, LocationPin, Recenter, Search } from '@/components/Icons';
+import { Bell, ChevronDown, DropMark, LocationPin, Recenter } from '@/components/Icons';
 import { colors, font, gradients, radii, shadows } from '@/theme/tokens';
-import { ME } from '@/data/mock';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { getUnreadCount, getPlaylistDropDetail } from '@/services/backend';
 import type { RootStackParamList } from '@/navigation/types';
 
 const GLOW = ['255,143,182', '124,198,255', '255,216,110'];
@@ -37,17 +42,66 @@ export default function MapScreen() {
   const lookupSong = useAppStore((s) => s.lookupSong);
   const userLocationLabel = useAppStore((s) => s.userLocationLabel);
   const refreshLocation = useAppStore((s) => s.refreshLocation);
+  const loadNearbyDrops = useAppStore((s) => s.loadNearbyDrops);
+  const loadLikes = useAppStore((s) => s.loadLikes);
+  const loadDropSocial = useAppStore((s) => s.loadDropSocial);
+  const cacheSongs = useAppStore((s) => s.cacheSongs);
+  const playQueue = useAppStore((s) => s.playQueue);
+  const resetDropFlow = useAppStore((s) => s.resetDropFlow);
+  const username = useAuthStore((s) => s.user?.username ?? '나');
 
+  const [unread, setUnread] = useState(0);
   const selected = lookupDrop(selectedDropId);
   const mapRef = useRef<RealMapHandle>(null);
 
-  // resolve the device's real location (동 label + address) once on mount
-  useEffect(() => {
-    refreshLocation();
-  }, [refreshLocation]);
+  // refresh on focus: location → nearby drops + likes + unread badge
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        await refreshLocation();
+        if (!alive) return;
+        await Promise.all([loadLikes(), loadNearbyDrops()]);
+        try {
+          const n = await getUnreadCount();
+          if (alive) setUnread(n);
+        } catch {
+          /* ignore */
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [refreshLocation, loadNearbyDrops, loadLikes]),
+  );
 
-  // Recenter the real map camera on the user's location.
   const onRecenter = () => mapRef.current?.recenter();
+
+  const onSelectDrop = async (id: string) => {
+    const d = drops.find((x) => x.id === id);
+    if (!d) return;
+    if (d.dropType === 'VOTE') {
+      navigation.navigate('VoteDrop', { dropId: id });
+      return;
+    }
+    if (d.dropType === 'PLAYLIST') {
+      try {
+        const detail = await getPlaylistDropDetail(id);
+        const songs = detail.songs.map((s) => ({ id: s.songId, title: s.title, artist: s.artist, artworkUrl: s.albumImagePath }));
+        cacheSongs(songs);
+        const queue = songs.map((s) => ({ songId: s.id, dropId: id }));
+        if (queue.length) {
+          playQueue(queue, 0);
+          navigation.navigate('Player');
+        }
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    selectPin(id);
+    loadDropSocial(id);
+  };
 
   return (
     <View style={styles.root}>
@@ -58,7 +112,7 @@ export default function MapScreen() {
         selectedDropId={selectedDropId}
         glowFor={(i) => GLOW[i % GLOW.length]}
         artworkFor={(songId) => lookupSong(songId).artworkUrl}
-        onSelectDrop={selectPin}
+        onSelectDrop={onSelectDrop}
       />
 
       {/* top bar */}
@@ -70,13 +124,20 @@ export default function MapScreen() {
             <ChevronDown size={13} />
           </View>
         </GlassView>
-        <GlassView style={styles.searchBtn} overlay={colors.glass}>
-          <Search size={18} color="#fff" strokeWidth={2} />
-        </GlassView>
+        <Pressable onPress={() => navigation.navigate('Notifications')} accessibilityRole="button" accessibilityLabel="알림">
+          <GlassView style={styles.searchBtn} overlay={colors.glass}>
+            <Bell size={18} color="#fff" strokeWidth={2} />
+            {unread > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text>
+              </View>
+            )}
+          </GlassView>
+        </Pressable>
       </View>
 
-      {/* right-side now playing disc (only when a drop is selected) */}
-      {selected && (
+      {/* right-side now playing disc (only when a MUSIC drop is selected) */}
+      {selected && selected.dropType === 'MUSIC' && (
         <View style={styles.disc}>
           <NowPlayingDisc
             songId={selected.songId}
@@ -94,13 +155,9 @@ export default function MapScreen() {
       {/* bottom dock */}
       <View style={[styles.dock, { bottom: insets.bottom + 6 }]}>
         <GlassView style={styles.dockPill} overlay={colors.glassDock}>
-          <Pressable
-            onPress={() => navigation.navigate('Profile')}
-            accessibilityRole="button"
-            accessibilityLabel="프로필"
-          >
+          <Pressable onPress={() => navigation.navigate('Profile')} accessibilityRole="button" accessibilityLabel="프로필">
             <Avatar
-              name={ME.displayName}
+              name={username}
               size={48}
               fontSize={14}
               colors={gradients.meAvatar}
@@ -110,21 +167,12 @@ export default function MapScreen() {
               boxShadow="inset 0 2px 5px rgba(255,255,255,0.35), 0 4px 12px rgba(0,0,0,0.3)"
             />
           </Pressable>
-          <Pressable
-            onPress={onRecenter}
-            accessibilityRole="button"
-            accessibilityLabel="내 위치로"
-            style={styles.recenter}
-          >
+          <Pressable onPress={onRecenter} accessibilityRole="button" accessibilityLabel="내 위치로" style={styles.recenter}>
             <Recenter size={21} color={colors.pink} strokeWidth={2} />
           </Pressable>
         </GlassView>
 
-        <Pressable
-          onPress={() => navigation.navigate('DropSearch')}
-          accessibilityRole="button"
-          accessibilityLabel="드랍하기"
-        >
+        <Pressable onPress={() => { resetDropFlow(); navigation.navigate('DropSearch'); }} accessibilityRole="button" accessibilityLabel="드랍하기">
           <SignatureGradient style={styles.dropCta}>
             <DropMark size={22} color="#2a1530" strokeWidth={2.4} />
             <Text style={styles.dropLabel}>드랍</Text>
@@ -145,6 +193,8 @@ const styles = StyleSheet.create({
   locText: { fontFamily: font.bold, fontSize: 14, color: '#fff' },
   chevWrap: { width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
   searchBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', top: -3, right: -3, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.pinkDeep, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.bgBase },
+  badgeText: { fontFamily: font.bold, fontSize: 10, color: '#fff' },
 
   disc: { position: 'absolute', right: 14, top: '46%', marginTop: -40, zIndex: 45 },
 
