@@ -34,6 +34,20 @@ export const Search = ({ size = 18, color = '#fff', strokeWidth = 2 }: IconProps
   </Svg>
 );
 
+export const Bell = ({ size = 18, color = '#fff', strokeWidth = 2 }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path {...stroke(color, strokeWidth)} d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+    <Path {...stroke(color, strokeWidth)} d="M13.7 21a2 2 0 0 1-3.4 0" />
+  </Svg>
+);
+
+export const Vote = ({ size = 18, color = '#fff', strokeWidth = 2 }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path {...stroke(color, strokeWidth)} d="m9 11 3 3L22 4" />
+    <Path {...stroke(color, strokeWidth)} d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+  </Svg>
+);
+
 export const ChevronDown = ({ size = 13, color = 'rgba(255,255,255,0.75)', strokeWidth = 2.4 }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
     <Path {...stroke(color, strokeWidth)} d="M6 9l6 6 6-6" />

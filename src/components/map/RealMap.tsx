@@ -110,14 +110,16 @@ export const RealMap = forwardRef<RealMapHandle, Props>(function RealMap(
   const region: Region = regionFor(coords);
   const center = { latitude: coords.lat, longitude: coords.lng };
 
-  // Place mock drops around the user using the design's relative map positions
-  // (mapX/mapY %), so they're always on-screen near "me" regardless of the
-  // device's GPS. M4 replaces these with getNearbyDrops() real coordinates.
+  // Real drops carry GPS from the backend (getNearbyDrops). Older mock drops
+  // (lat/lng 0) fall back to the design's relative map positions around "me".
   const SPREAD = 0.9 / 111; // ~0.9km half-span in degrees
-  const dropCoordinate = (d: Drop) => ({
-    latitude: coords.lat + ((50 - d.mapY) / 100) * SPREAD * 2,
-    longitude: coords.lng + ((d.mapX - 50) / 100) * SPREAD * 2,
-  });
+  const dropCoordinate = (d: Drop) =>
+    d.lat && d.lng
+      ? { latitude: d.lat, longitude: d.lng }
+      : {
+          latitude: coords.lat + ((50 - d.mapY) / 100) * SPREAD * 2,
+          longitude: coords.lng + ((d.mapX - 50) / 100) * SPREAD * 2,
+        };
 
   return (
     <MapView
@@ -156,7 +158,7 @@ export const RealMap = forwardRef<RealMapHandle, Props>(function RealMap(
           coordinate={dropCoordinate(d)}
           selected={d.id === selectedDropId}
           glow={glowFor(i)}
-          artworkUrl={artworkFor?.(d.songId)}
+          artworkUrl={d.albumImageUrl ?? artworkFor?.(d.songId)}
           onPress={() => onSelectDrop(d.id)}
         />
       ))}

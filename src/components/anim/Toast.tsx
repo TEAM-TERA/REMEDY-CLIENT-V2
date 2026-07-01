@@ -11,12 +11,13 @@ import { useAppStore } from '@/store/useAppStore';
 
 export function Toast() {
   const toast = useAppStore((s) => s.toast);
+  const toastMsg = useAppStore((s) => s.toastMsg);
   if (!toast) return null;
   return (
     <View style={styles.layer} pointerEvents="none">
       <Animated.View entering={FadeInDown.duration(300)} exiting={FadeOut.duration(200)} style={styles.pill}>
         <Check size={18} color="#ff7ea8" strokeWidth={2.2} />
-        <Text style={styles.text}>이 거리에 음악을 떨어뜨렸어요</Text>
+        <Text style={styles.text}>{toastMsg || '이 거리에 음악을 떨어뜨렸어요'}</Text>
       </Animated.View>
     </View>
   );
