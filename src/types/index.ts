@@ -32,6 +32,8 @@ export interface Song {
   coverId?: string;
 }
 
+export type DropType = 'MUSIC' | 'VOTE' | 'PLAYLIST';
+
 export interface Drop {
   id: string;
   authorId: string;
@@ -53,6 +55,22 @@ export interface Drop {
   mapY: number;
   /** active = nearby framed pin; otherwise dim square dot */
   active: boolean;
+
+  // ── backend-backed fields (REMEDY-BACK-V3) ──
+  /** which kind of drop — drives pin art and the detail screen */
+  dropType: DropType;
+  /** direct album art from the search response (avoids a songCache lookup);
+   *  MUSIC → song art, VOTE/PLAYLIST → first track's art */
+  albumImageUrl?: string;
+  /** MUSIC: song title/artist straight from the search item */
+  title?: string;
+  artist?: string;
+  /** VOTE payload */
+  voteTopic?: string;
+  voteOptionSongIds?: string[];
+  /** PLAYLIST payload */
+  playlistName?: string;
+  playlistSongIds?: string[];
 }
 
 export interface Comment {
@@ -70,6 +88,8 @@ export interface Playlist {
   songCount: number;
   totalDurationLabel: string; // "1시간 9분"
   coverSongId?: string;
+  /** cover image straight from the backend (album art of first track) */
+  coverImageUrl?: string;
   songIds: string[];
 }
 
@@ -78,6 +98,20 @@ export interface Service {
   name: string; // full label, e.g. "Apple Music"
   shortName: string; // "Apple"
   color: string;
+}
+
+export type NotificationType = 'LIKE' | 'COMMENT' | 'DROPPING';
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  droppingId: string;
+  actorName: string; // actorUsername (may be empty)
+  songId?: string;
+  commentContent?: string;
+  isRead: boolean;
+  createdAt: string;
+  dateLabel: string; // "6월 26일"
 }
 
 /** Distance formatting per DATA_MODEL §3. */
