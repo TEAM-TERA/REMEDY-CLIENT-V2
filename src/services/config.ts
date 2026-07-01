@@ -1,21 +1,24 @@
 /**
- * Runtime config — Spotify credentials + Google Maps key come from the
- * environment (`.env`, which is gitignored). NEVER hardcode them here.
+ * Runtime config. The backend (REMEDY-BACK-V3) now owns Spotify search/metadata,
+ * so the app no longer needs a Spotify secret in the bundle — search goes through
+ * `GET /songs/search`. Only the Google Maps key (consumed by app.config.js at
+ * prebuild) and the API base URL remain client config.
  *
  * `EXPO_PUBLIC_*` vars are inlined into the JS bundle by Metro at build time, so
  * they work in dev (after a Metro restart to pick up `.env`) without a native
- * rebuild. The Google Maps key is consumed by app.config.js at prebuild time.
- *
- * ⚠️ A no-backend Client Credentials secret necessarily ends up in the app
- * bundle. Restrict the app / move the secret to a backend proxy before any
- * public release. See .env.example / INTEGRATION_KEYS.md.
+ * rebuild.
  */
-export const config = {
-  spotifyClientId: process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID ?? '',
-  spotifyClientSecret: process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_SECRET ?? '',
-  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.remedy.example.com',
-};
+import { Platform } from 'react-native';
 
-export const spotifyConfigured = config.spotifyClientId.length > 0;
-/** Client Credentials (app token) available → login-free Spotify search. */
-export const spotifySearchConfigured = spotifyConfigured && config.spotifyClientSecret.length > 0;
+/**
+ * Default API base URL per platform when EXPO_PUBLIC_API_BASE_URL is unset:
+ *  - Android emulator reaches the host machine via the 10.0.2.2 alias.
+ *  - iOS simulator shares the host loopback, so localhost works.
+ * A physical device needs the dev machine's LAN IP — set EXPO_PUBLIC_API_BASE_URL.
+ */
+const DEFAULT_API_BASE =
+  Platform.OS === 'android' ? 'http://10.0.2.2:4000/api/v1' : 'http://localhost:4000/api/v1';
+
+export const config = {
+  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE,
+};

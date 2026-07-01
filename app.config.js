@@ -62,7 +62,9 @@ export default () => ({
     'expo-splash-screen',
   ],
   extra: {
-    // Spotify credentials are read in-app from EXPO_PUBLIC_* env (src/services/config.ts).
-    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.remedy.example.com',
+    // Backend base URL is resolved in-app (src/services/config.ts) with a
+    // per-platform default; EXPO_PUBLIC_API_BASE_URL overrides it. Spotify
+    // search/metadata is served by the backend — no Spotify secret in the app.
+    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? '',
   },
 });
