@@ -3,13 +3,18 @@
  * rainbow progress, transport controls, drop-note card, comments.
  * M3 binds playing/progress/controls to the real Spotify playback state.
  */
-import React, { useState } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Dimensions, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { getMusicDropDetail } from '@/services/backend';
+import { PromptModal } from '@/components/PromptModal';
+import { useAuthStore } from '@/store/useAuthStore';
+import type { Comment } from '@/types';
 
 import { SongCover } from '@/components/SongCover';
 import { SpinningRecord } from '@/components/anim/SpinningRecord';
@@ -45,33 +50,73 @@ export default function PlayerScreen() {
   const playing = useAppStore((s) => s.playing);
   const progress = useAppStore((s) => s.progress);
   const togglePlay = useAppStore((s) => s.togglePlay);
-  const toggleLike = useAppStore((s) => s.toggleLike);
+  const toggleSelectedDropLike = useAppStore((s) => s.toggleSelectedDropLike);
   const nextTrack = useAppStore((s) => s.nextTrack);
   const prevTrack = useAppStore((s) => s.prevTrack);
   const lookupSong = useAppStore((s) => s.lookupSong);
   const drops = useAppStore((s) => s.drops); // subscribe so per-drop likes re-render
-  const likedSongIds = useAppStore((s) => s.likedSongIds); // subscribe so heart re-renders
+  const likedDropIds = useAppStore((s) => s.likedDropIds); // subscribe so heart re-renders
   const commentsByDrop = useAppStore((s) => s.comments); // subscribe so new comments render
   const addComment = useAppStore((s) => s.addComment);
+  const editComment = useAppStore((s) => s.editComment);
+  const removeComment = useAppStore((s) => s.removeComment);
+  const loadDropSocial = useAppStore((s) => s.loadDropSocial);
+  const myName = useAuthStore((s) => s.user?.username ?? '');
 
   const song = lookupSong(currentSongId);
   // may be undefined when playing a song that isn't a drop (playlist / likes)
   const drop = drops.find((d) => d.id === selectedDropId);
-  const liked = likedSongIds.includes(currentSongId);
+  const liked = drop ? likedDropIds.includes(drop.id) : false;
   const likeCount = drop?.likeCount ?? 0;
   const comments = drop ? commentsByDrop[drop.id] ?? [] : [];
   const durationMs = song.durationMs ?? 192000;
   const elapsed = formatDuration((durationMs * progress) / 100, true);
 
+  // drop detail (author / date / external play links)
+  const [detail, setDetail] = useState<{ username: string; createdAt: string; playLinks?: { spotify?: { available: boolean; url?: string }; youtube?: { available: boolean; url?: string } } } | null>(null);
+  useEffect(() => {
+    setDetail(null);
+    if (!drop || drop.dropType !== 'MUSIC') return;
+    let alive = true;
+    loadDropSocial(drop.id);
+    getMusicDropDetail(drop.id)
+      .then((d) => alive && setDetail({ username: d.username, createdAt: d.createdAt, playLinks: d.playLinks }))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [drop?.id]);
+
+  const authorName = detail?.username || drop?.authorName || '';
+  const dateLabel = detail?.createdAt
+    ? `${new Date(detail.createdAt).getFullYear()}년 ${new Date(detail.createdAt).getMonth() + 1}월 ${new Date(detail.createdAt).getDate()}일`
+    : drop?.dateLabel || '';
+  const spotifyUrl = detail?.playLinks?.spotify?.available ? detail.playLinks.spotify.url : undefined;
+  const youtubeUrl = detail?.playLinks?.youtube?.available ? detail.playLinks.youtube.url : undefined;
+
   const [commentText, setCommentText] = useState('');
-  const onSendComment = () => {
+  const [editTarget, setEditTarget] = useState<Comment | null>(null);
+  const onSendComment = async () => {
     const t = commentText.trim();
     if (!t || !drop) return;
-    addComment(drop.id, t);
     setCommentText('');
+    const res = await addComment(drop.id, t);
+    if (!res.ok) {
+      setCommentText(t);
+      Alert.alert('댓글을 남기지 못했어요', res.message);
+    }
+  };
+  const onCommentMenu = (c: Comment) => {
+    if (!drop) return;
+    Alert.alert('댓글', undefined, [
+      { text: '수정', onPress: () => setEditTarget(c) },
+      { text: '삭제', style: 'destructive', onPress: () => removeComment(drop.id, c.id) },
+      { text: '취소', style: 'cancel' },
+    ]);
   };
 
   return (
+    <>
     <ScrollView style={styles.root} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
       {/* hero */}
       <View style={styles.hero}>
@@ -115,7 +160,8 @@ export default function PlayerScreen() {
             <Text style={styles.artist}>{song.artist}</Text>
           </View>
           <Pressable
-            onPress={toggleLike}
+            onPress={toggleSelectedDropLike}
+            disabled={!drop}
             accessibilityRole="button"
             accessibilityLabel={liked ? '좋아요 취소' : '좋아요'}
             hitSlop={8}
@@ -162,16 +208,32 @@ export default function PlayerScreen() {
           </Pressable>
         </View>
 
+        {/* external play (backend playLinks) */}
+        {(spotifyUrl || youtubeUrl) && (
+          <View style={styles.linksRow}>
+            {spotifyUrl && (
+              <Pressable onPress={() => Linking.openURL(spotifyUrl)} style={[styles.linkBtn, { backgroundColor: 'rgba(29,185,84,0.16)', borderColor: 'rgba(29,185,84,0.5)' }]}>
+                <Text style={[styles.linkText, { color: '#1ed760' }]}>Spotify에서 듣기</Text>
+              </Pressable>
+            )}
+            {youtubeUrl && (
+              <Pressable onPress={() => Linking.openURL(youtubeUrl)} style={[styles.linkBtn, { backgroundColor: 'rgba(255,0,0,0.14)', borderColor: 'rgba(255,80,80,0.5)' }]}>
+                <Text style={[styles.linkText, { color: '#ff6b6b' }]}>YouTube에서 듣기</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
         {/* drop note + comments — only when this song is a drop */}
         {drop && (
         <>
         <View style={styles.noteCard}>
           <View style={styles.noteHead}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Avatar name={drop.authorName} size={22} />
-              <Text style={styles.noteUser}>{drop.authorName}</Text>
+              <Avatar name={authorName || '익명'} size={22} />
+              <Text style={styles.noteUser}>{authorName || '익명'}</Text>
             </View>
-            <Text style={styles.noteDate}>{drop.dateLabel}</Text>
+            <Text style={styles.noteDate}>{dateLabel}</Text>
           </View>
           <Text style={styles.noteText}>{drop.note || '메시지 없음'}</Text>
           <View style={styles.noteLoc}>
@@ -202,25 +264,49 @@ export default function PlayerScreen() {
             {comments.length === 0 && (
               <Text style={styles.commentEmpty}>아직 댓글이 없어요. 첫 댓글을 남겨보세요.</Text>
             )}
-            {comments.map((c) => (
-              <View key={c.id} style={styles.commentRow}>
-                <Avatar name={c.authorName} size={38} />
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={styles.commentUser}>{c.authorName}</Text>
-                    <Text style={styles.commentDate}>{c.dateLabel}</Text>
+            {comments.map((c) => {
+              const mine = !!myName && c.authorName === myName;
+              return (
+                <View key={c.id} style={styles.commentRow}>
+                  <Avatar name={c.authorName || '익명'} size={38} />
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.commentUser}>{c.authorName || '익명'}</Text>
+                      {!!c.dateLabel && <Text style={styles.commentDate}>{c.dateLabel}</Text>}
+                    </View>
+                    <Text style={styles.commentText}>{c.text}</Text>
                   </View>
-                  <Text style={styles.commentText}>{c.text}</Text>
+                  {mine && (
+                    <Pressable onPress={() => onCommentMenu(c)} hitSlop={8} accessibilityLabel="내 댓글 메뉴">
+                      <DotsVertical size={18} />
+                    </Pressable>
+                  )}
                 </View>
-                <DotsVertical size={18} />
-              </View>
-            ))}
+              );
+            })}
           </View>
         </View>
         </>
         )}
       </View>
     </ScrollView>
+    <PromptModal
+      visible={!!editTarget}
+      title="댓글 수정"
+      initialValue={editTarget?.text ?? ''}
+      confirmLabel="수정"
+      maxLength={200}
+      onCancel={() => setEditTarget(null)}
+      onSubmit={async (text) => {
+        const target = editTarget;
+        setEditTarget(null);
+        if (target && drop) {
+          const res = await editComment(drop.id, target.id, text);
+          if (!res.ok) Alert.alert('수정하지 못했어요', res.message);
+        }
+      }}
+    />
+    </>
   );
 }
 
@@ -247,6 +333,10 @@ const styles = StyleSheet.create({
 
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 22 },
   playBtn: { width: 74, height: 74, borderRadius: 37, borderWidth: 2, borderColor: 'rgba(255,255,255,0.85)', backgroundColor: 'rgba(255,255,255,0.04)', alignItems: 'center', justifyContent: 'center' },
+
+  linksRow: { flexDirection: 'row', gap: 10, marginTop: 22 },
+  linkBtn: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  linkText: { fontFamily: font.bold, fontSize: 13.5 },
 
   noteCard: { marginTop: 30, borderRadius: 22, padding: 20, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   noteHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
