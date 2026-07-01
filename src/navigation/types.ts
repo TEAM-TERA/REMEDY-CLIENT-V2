@@ -7,11 +7,15 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
  */
 export type RootStackParamList = {
   Login: undefined;
+  Auth: { mode?: 'login' | 'register' } | undefined;
   Map: undefined;
   Player: undefined;
   DropSearch: undefined;
   Drop: undefined;
+  VoteDrop: { dropId: string };
   Profile: undefined;
+  ProfileEdit: undefined;
+  Notifications: undefined;
   Playlist: undefined;
   AddSongs: { playlistId: string };
   Settings: undefined;
