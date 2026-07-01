@@ -1,21 +1,25 @@
 /**
- * Profile — README §4.6. Profile header + 3 tabs (플레이리스트 / 드랍 기록 / 좋아요).
+ * Profile — header + 3 tabs (플레이리스트 / 드랍 기록 / 좋아요), all backed by the
+ * backend: GET /users/my-drop, GET /playlists/my, GET /users/my-like.
+ * The header opens 프로필 편집(ProfileEdit) and 설정(Settings).
  */
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { G, Line, Path } from 'react-native-svg';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SongCover } from '@/components/SongCover';
 import { Avatar } from '@/components/Avatar';
+import { PromptModal } from '@/components/PromptModal';
 import { ArrowRight, ChevronLeft, DotsHorizontal, DotsVertical, Heart, LocationPin } from '@/components/Icons';
 import { colors, font, gradients } from '@/theme/tokens';
-import { ME } from '@/data/mock';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import type { RootStackParamList } from '@/navigation/types';
+import type { Drop } from '@/types';
 
 const W = Dimensions.get('window').width;
 const COL = (W - 22 * 2 - 16) / 2;
@@ -32,13 +36,35 @@ export default function ProfileScreen() {
   const profileTab = useAppStore((s) => s.profileTab);
   const setProfileTab = useAppStore((s) => s.setProfileTab);
   const openDrop = useAppStore((s) => s.openDrop);
-  const playQueue = useAppStore((s) => s.playQueue);
+  const openSong = useAppStore((s) => s.openSong);
   const setPlaylist = useAppStore((s) => s.setPlaylist);
-  const likedSongIds = useAppStore((s) => s.likedSongIds);
+  const loadMyDrops = useAppStore((s) => s.loadMyDrops);
+  const loadPlaylists = useAppStore((s) => s.loadPlaylists);
+  const loadLikes = useAppStore((s) => s.loadLikes);
+  const mergeDrops = useAppStore((s) => s.mergeDrops);
+  const user = useAuthStore((s) => s.user);
+
+  const [myDrops, setMyDrops] = useState<Drop[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        const drops = await loadMyDrops();
+        if (!alive) return;
+        setMyDrops(drops);
+        mergeDrops(drops);
+        loadPlaylists();
+        loadLikes();
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [loadMyDrops, loadPlaylists, loadLikes, mergeDrops]),
+  );
 
   return (
     <ScrollView style={styles.root} showsVerticalScrollIndicator={false}>
-      {/* top bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 15 }]}>
         <Pressable onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel="뒤로" style={styles.backBtn}>
           <ChevronLeft size={20} color="#fff" strokeWidth={2.2} />
@@ -48,19 +74,21 @@ export default function ProfileScreen() {
 
       {/* profile row */}
       <View style={styles.profileRow}>
-        <Avatar
-          name={ME.displayName}
-          size={70}
-          fontSize={22}
-          square
-          colors={gradients.meAvatar}
-          locations={gradients.meAvatarLocations}
-          boxShadow="inset 0 2px 8px rgba(255,255,255,0.25), 0 6px 16px rgba(0,0,0,0.35)"
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{ME.displayName}</Text>
-          <Text style={styles.email} numberOfLines={1}>{ME.email}</Text>
-        </View>
+        <Pressable onPress={() => navigation.navigate('ProfileEdit')} accessibilityLabel="프로필 편집">
+          <Avatar
+            name={user?.username ?? '나'}
+            size={70}
+            fontSize={22}
+            square
+            colors={gradients.meAvatar}
+            locations={gradients.meAvatarLocations}
+            boxShadow="inset 0 2px 8px rgba(255,255,255,0.25), 0 6px 16px rgba(0,0,0,0.35)"
+          />
+        </Pressable>
+        <Pressable style={{ flex: 1 }} onPress={() => navigation.navigate('ProfileEdit')}>
+          <Text style={styles.name}>{user?.username ?? '나'}</Text>
+          <Text style={styles.email} numberOfLines={1}>{user?.email || '프로필 편집하기'}</Text>
+        </Pressable>
         <Pressable onPress={() => navigation.navigate('Settings')} accessibilityRole="button" accessibilityLabel="설정" style={styles.dotsBtn}>
           <DotsVertical size={20} color="rgba(255,255,255,0.5)" />
         </Pressable>
@@ -80,25 +108,20 @@ export default function ProfileScreen() {
         <ArrowRight size={22} color="rgba(255,255,255,0.5)" strokeWidth={2} />
       </View>
 
-      {profileTab === 'drops' && <DropsTab onOpen={(id) => { openDrop(id); navigation.navigate('Player'); }} />}
+      {profileTab === 'drops' && (
+        <DropsTab drops={myDrops} onOpen={(id) => { openDrop(id); navigation.navigate('Player'); }} />
+      )}
       {profileTab === 'playlists' && (
         <PlaylistsTab onOpen={(id) => { setPlaylist(id); navigation.navigate('Playlist'); }} />
       )}
       {profileTab === 'likes' && (
-        <LikesTab
-          onOpen={(id) => {
-            const i = likedSongIds.indexOf(id);
-            playQueue(likedSongIds.map((sid) => ({ songId: sid })), i < 0 ? 0 : i);
-            navigation.navigate('Player');
-          }}
-        />
+        <LikesTab onOpen={(songId) => { openSong(songId); navigation.navigate('Player'); }} />
       )}
     </ScrollView>
   );
 }
 
-function DropsTab({ onOpen }: { onOpen: (id: string) => void }) {
-  const drops = useAppStore((s) => s.drops);
+function DropsTab({ drops, onOpen }: { drops: Drop[]; onOpen: (id: string) => void }) {
   const lookupSong = useAppStore((s) => s.lookupSong);
   const userAddress = useAppStore((s) => s.userAddress);
 
@@ -109,22 +132,26 @@ function DropsTab({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dropRow}>
-        {drops.map((d) => (
-          <Pressable key={d.id} onPress={() => onOpen(d.id)} style={styles.dropCard}>
-            <SongCover songId={d.songId} artworkUrl={lookupSong(d.songId).artworkUrl} size={80} radius={13} />
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                <Text style={styles.dropTitle} numberOfLines={1}>{lookupSong(d.songId).title}</Text>
-                <DotsHorizontal size={16} />
+        {drops.map((d) => {
+          const art = d.albumImageUrl ?? lookupSong(d.songId).artworkUrl;
+          const title = d.title || lookupSong(d.songId).title;
+          return (
+            <Pressable key={d.id} onPress={() => onOpen(d.id)} style={styles.dropCard}>
+              <SongCover songId={d.songId} artworkUrl={art} size={80} radius={13} />
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                  <Text style={styles.dropTitle} numberOfLines={1}>{title}</Text>
+                  <DotsHorizontal size={16} />
+                </View>
+                <Text style={styles.dropNote} numberOfLines={1}>{d.note || '메시지 없이 남긴 곡'}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 11 }}>
+                  <LocationPin size={13} color={colors.pink} strokeWidth={2} />
+                  <Text style={styles.dropDate} numberOfLines={1}>{d.locationLabel || d.address}</Text>
+                </View>
               </View>
-              <Text style={styles.dropNote} numberOfLines={1}>{d.note || '메시지 없이 남긴 곡'}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 11 }}>
-                <Avatar name={d.authorName} size={22} />
-                <Text style={styles.dropDate}>{d.dateLabel}</Text>
-              </View>
-            </View>
-          </Pressable>
-        ))}
+            </Pressable>
+          );
+        })}
       </ScrollView>
 
       <View style={styles.dropLocRow}>
@@ -180,66 +207,68 @@ function PlaylistsTab({ onOpen }: { onOpen: (id: string) => void }) {
   const playlists = useAppStore((s) => s.playlists);
   const lookupSong = useAppStore((s) => s.lookupSong);
   const createPlaylist = useAppStore((s) => s.createPlaylist);
-
-  const onCreate = () => {
-    Alert.prompt('새 플레이리스트', '이름을 입력하세요', (name) => {
-      const trimmed = (name ?? '').trim();
-      if (!trimmed) return;
-      const id = createPlaylist(trimmed);
-      onOpen(id);
-    });
-  };
+  const [creating, setCreating] = useState(false);
 
   return (
     <View style={styles.grid}>
       {playlists.map((p) => {
         const cover = p.songIds[0];
+        const art = p.coverImageUrl ?? (cover ? lookupSong(cover).artworkUrl : undefined);
         return (
           <Pressable key={p.id} onPress={() => onOpen(p.id)} style={{ width: COL, marginBottom: 16 }}>
-            <SongCover songId={cover} artworkUrl={cover ? lookupSong(cover).artworkUrl : undefined} size={COL} radius={16} />
+            <SongCover songId={cover ?? p.id} artworkUrl={art} size={COL} radius={16} />
             <Text style={styles.gridName} numberOfLines={1}>{p.name}</Text>
-            <Text style={styles.gridCount}>{p.songIds.length}곡</Text>
+            <Text style={styles.gridCount}>{p.songCount}곡</Text>
           </Pressable>
         );
       })}
-      {/* create */}
-      <Pressable onPress={onCreate} style={{ width: COL, marginBottom: 16 }}>
+      <Pressable onPress={() => setCreating(true)} style={{ width: COL, marginBottom: 16 }}>
         <View style={[styles.createCover, { width: COL, height: COL }]}>
           <Text style={styles.createPlus}>+</Text>
         </View>
         <Text style={styles.gridName} numberOfLines={1}>새 플레이리스트</Text>
         <Text style={styles.gridCount}>만들기</Text>
       </Pressable>
+
+      <PromptModal
+        visible={creating}
+        title="새 플레이리스트"
+        placeholder="이름을 입력하세요"
+        confirmLabel="만들기"
+        onCancel={() => setCreating(false)}
+        onSubmit={async (name) => {
+          setCreating(false);
+          const id = await createPlaylist(name);
+          if (id) onOpen(id);
+          else Alert.alert('만들지 못했어요', '잠시 후 다시 시도해주세요.');
+        }}
+      />
     </View>
   );
 }
 
-function LikesTab({ onOpen }: { onOpen: (id: string) => void }) {
-  const likedSongIds = useAppStore((s) => s.likedSongIds);
-  const lookupSong = useAppStore((s) => s.lookupSong);
-  const toggleLikedSong = useAppStore((s) => s.toggleLikedSong);
+function LikesTab({ onOpen }: { onOpen: (songId: string) => void }) {
+  const likedDrops = useAppStore((s) => s.likedDrops);
+  const unlikeDrop = useAppStore((s) => s.unlikeDrop);
 
-  if (likedSongIds.length === 0) {
+  if (likedDrops.length === 0) {
     return <Text style={styles.emptyDrops}>아직 좋아요한 곡이 없어요.{'\n'}플레이어에서 하트를 눌러 담아보세요.</Text>;
   }
 
   return (
     <View style={styles.likes}>
-      {likedSongIds.map((id) => {
-        const s = lookupSong(id);
-        return (
-          <Pressable key={id} onPress={() => onOpen(id)} style={styles.likeRow}>
-            <SongCover songId={id} artworkUrl={s.artworkUrl} size={52} radius={10} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.likeTitle} numberOfLines={1}>{s.title}</Text>
-              <Text style={styles.likeArtist} numberOfLines={1}>{s.artist}</Text>
-            </View>
-            <Pressable onPress={() => toggleLikedSong(id)} hitSlop={10} accessibilityRole="button" accessibilityLabel="좋아요 취소">
-              <Heart size={20} filled color={colors.pink} />
-            </Pressable>
+      {likedDrops.map((e) => (
+        <Pressable key={e.dropId} onPress={() => onOpen(e.song.id)} style={styles.likeRow}>
+          <SongCover songId={e.song.id} artworkUrl={e.song.artworkUrl} size={52} radius={10} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.likeTitle} numberOfLines={1}>{e.song.title || '제목 없음'}</Text>
+            <Text style={styles.likeArtist} numberOfLines={1}>{e.song.artist}</Text>
+          </View>
+          <Pressable onPress={() => unlikeDrop(e.dropId)} hitSlop={10} accessibilityRole="button" accessibilityLabel="좋아요 취소">
+            <Heart size={20} filled color={colors.pink} />
           </Pressable>
-        );
-      })}
+        </Pressable>
+      ))}
     </View>
   );
 }

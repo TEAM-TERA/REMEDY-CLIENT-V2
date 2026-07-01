@@ -2,7 +2,7 @@
  * Settings — README §4.8. Map display mode, playback services, account.
  */
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { SegmentGradient } from '@/components/Gradient';
 import { AppleGlyph, Check, ChevronRight, ChevronLeft, SpotifyGlyph, YouTubeGlyph } from '@/components/Icons';
 import { colors, font } from '@/theme/tokens';
 import { SERVICES } from '@/data/mock';
+import { withdrawAccount } from '@/services/backend';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { RootStackParamList } from '@/navigation/types';
@@ -32,9 +33,28 @@ export default function SettingsScreen() {
   const connectService = useAppStore((s) => s.connectService);
   const signOut = useAuthStore((s) => s.signOut);
 
-  const onLogout = () => {
-    signOut();
+  const onLogout = async () => {
+    await signOut();
     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+  };
+
+  const onWithdraw = () => {
+    Alert.alert('회원 탈퇴', '계정과 모든 드랍이 삭제돼요. 정말 탈퇴할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '탈퇴',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await withdrawAccount();
+          } catch {
+            /* proceed to sign-out regardless */
+          }
+          await signOut();
+          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        },
+      },
+    ]);
   };
 
   const glyphFor = (id: ServiceId) =>
@@ -107,16 +127,19 @@ export default function SettingsScreen() {
         {/* account */}
         <Text style={[styles.sectionLabel, { marginTop: 26 }]}>계정</Text>
         <View style={styles.accountCard}>
-          <View style={[styles.accountRow, styles.accountDivider]}>
-            <Text style={styles.accountText}>알림 설정</Text>
+          <Pressable onPress={() => navigation.navigate('ProfileEdit')} style={[styles.accountRow, styles.accountDivider]}>
+            <Text style={styles.accountText}>프로필 편집</Text>
             <ChevronRight size={18} color="rgba(255,255,255,0.4)" strokeWidth={2} />
-          </View>
-          <View style={[styles.accountRow, styles.accountDivider]}>
-            <Text style={styles.accountText}>개인정보 보호</Text>
+          </Pressable>
+          <Pressable onPress={() => navigation.navigate('Notifications')} style={[styles.accountRow, styles.accountDivider]}>
+            <Text style={styles.accountText}>알림</Text>
             <ChevronRight size={18} color="rgba(255,255,255,0.4)" strokeWidth={2} />
-          </View>
-          <Pressable onPress={onLogout} style={styles.accountRow}>
+          </Pressable>
+          <Pressable onPress={onLogout} style={[styles.accountRow, styles.accountDivider]}>
             <Text style={[styles.accountText, { color: '#ff9cbb', fontFamily: font.semibold }]}>로그아웃</Text>
+          </Pressable>
+          <Pressable onPress={onWithdraw} style={styles.accountRow}>
+            <Text style={[styles.accountText, { color: 'rgba(255,255,255,0.45)' }]}>회원 탈퇴</Text>
           </Pressable>
         </View>
         <Text style={styles.version}>RE:MEDY v1.0.0</Text>

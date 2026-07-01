@@ -3,14 +3,15 @@
  * Playlists are managed in the store (mock): rename / delete the playlist
  * (header ⋮), add songs (+ 곡 추가), remove a song (row ⋮).
  */
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SongCover } from '@/components/SongCover';
+import { PromptModal } from '@/components/PromptModal';
 import { RainbowGradient } from '@/components/Gradient';
 import { ChevronLeft, DotsVertical, Play, Repeat } from '@/components/Icons';
 import { colors, font, gradients } from '@/theme/tokens';
@@ -36,6 +37,16 @@ export default function PlaylistScreen() {
   const removeSongFromPlaylist = useAppStore((s) => s.removeSongFromPlaylist);
   const deletePlaylist = useAppStore((s) => s.deletePlaylist);
   const renamePlaylist = useAppStore((s) => s.renamePlaylist);
+  const refreshPlaylist = useAppStore((s) => s.refreshPlaylist);
+
+  // pull fresh songs from the backend when this playlist opens
+  useFocusEffect(
+    useCallback(() => {
+      if (playlistId) refreshPlaylist(playlistId);
+    }, [playlistId, refreshPlaylist]),
+  );
+
+  const [renaming, setRenaming] = useState(false);
 
   const pl = playlists.find((p) => p.id === playlistId);
   if (!pl) return <View style={styles.root} />;
@@ -52,17 +63,13 @@ export default function PlaylistScreen() {
 
   const onMenu = () => {
     Alert.alert(pl.name, undefined, [
-      {
-        text: '이름 변경',
-        onPress: () =>
-          Alert.prompt('이름 변경', undefined, (name) => name && renamePlaylist(pl.id, name), 'plain-text', pl.name),
-      },
+      { text: '이름 변경', onPress: () => setRenaming(true) },
       {
         text: '플레이리스트 삭제',
         style: 'destructive',
-        onPress: () => {
-          deletePlaylist(pl.id);
-          navigation.goBack();
+        onPress: async () => {
+          const ok = await deletePlaylist(pl.id);
+          if (ok) navigation.goBack();
         },
       },
       { text: '취소', style: 'cancel' },
@@ -77,6 +84,7 @@ export default function PlaylistScreen() {
   };
 
   return (
+    <>
     <ScrollView style={styles.root} showsVerticalScrollIndicator={false}>
       {/* hero */}
       <View style={styles.hero}>
@@ -139,6 +147,18 @@ export default function PlaylistScreen() {
         )}
       </View>
     </ScrollView>
+    <PromptModal
+      visible={renaming}
+      title="이름 변경"
+      initialValue={pl.name}
+      confirmLabel="변경"
+      onCancel={() => setRenaming(false)}
+      onSubmit={(name) => {
+        setRenaming(false);
+        renamePlaylist(pl.id, name);
+      }}
+    />
+    </>
   );
 }
 

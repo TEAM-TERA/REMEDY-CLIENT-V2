@@ -3,7 +3,7 @@
  * catalog) and tap a result to toggle it in/out of the target playlist.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,14 +11,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SongCover } from '@/components/SongCover';
 import { Check, Close, Search } from '@/components/Icons';
 import { colors, font } from '@/theme/tokens';
-import { SONGS } from '@/data/mock';
-import { searchTracks } from '@/services/spotify';
-import { spotifySearchConfigured } from '@/services/config';
+import { searchSongs } from '@/services/backend';
 import { useAppStore } from '@/store/useAppStore';
 import type { RootStackParamList } from '@/navigation/types';
 import type { Song } from '@/types';
-
-const MOCK_SONGS = Object.values(SONGS);
 
 export default function AddSongsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -36,6 +32,7 @@ export default function AddSongsScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Song[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -45,18 +42,18 @@ export default function AddSongsScreen() {
       setLoading(false);
       return;
     }
-    if (!spotifySearchConfigured) {
-      const lower = q.toLowerCase();
-      setResults(MOCK_SONGS.filter((s) => s.title.toLowerCase().includes(lower) || s.artist.toLowerCase().includes(lower)));
-      return;
-    }
     if (debounce.current) clearTimeout(debounce.current);
     setLoading(true);
     debounce.current = setTimeout(async () => {
-      const found = await searchTracks(q);
-      cacheSongs(found);
-      setResults(found);
-      setLoading(false);
+      try {
+        const found = await searchSongs(q);
+        cacheSongs(found);
+        setResults(found);
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
     }, 350);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
@@ -65,10 +62,16 @@ export default function AddSongsScreen() {
 
   const inPlaylist = (id: string) => pl?.songIds.includes(id) ?? false;
 
-  const toggle = (s: Song) => {
+  const toggle = async (s: Song) => {
     cacheSongs([s]);
-    if (inPlaylist(s.id)) removeSongFromPlaylist(playlistId, s.id);
-    else addSongToPlaylist(playlistId, s.id);
+    if (inPlaylist(s.id)) {
+      removeSongFromPlaylist(playlistId, s.id);
+      return;
+    }
+    setPending(s.id);
+    const res = await addSongToPlaylist(playlistId, s.id);
+    setPending(null);
+    if (!res.ok) Alert.alert('담지 못했어요', res.message);
   };
 
   return (
@@ -87,7 +90,7 @@ export default function AddSongsScreen() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder={spotifySearchConfigured ? 'Spotify에서 곡·아티스트 검색' : '곡 제목, 아티스트 검색'}
+            placeholder="곡·아티스트 검색"
             placeholderTextColor="rgba(255,255,255,0.4)"
             autoCorrect={false}
             style={styles.input}
@@ -105,14 +108,20 @@ export default function AddSongsScreen() {
           {results.map((s) => {
             const added = inPlaylist(s.id);
             return (
-              <Pressable key={s.id} onPress={() => toggle(s)} style={styles.row}>
+              <Pressable key={s.id} onPress={() => toggle(s)} disabled={pending === s.id} style={styles.row}>
                 <SongCover songId={s.id} artworkUrl={s.artworkUrl} size={44} radius={10} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{s.title}</Text>
                   <Text style={styles.rowArtist} numberOfLines={1}>{s.artist}</Text>
                 </View>
                 <View style={[styles.addPill, added && styles.addPillOn]}>
-                  {added ? <Check size={16} color="#2a1530" strokeWidth={2.6} /> : <Text style={styles.addPillText}>추가</Text>}
+                  {pending === s.id ? (
+                    <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
+                  ) : added ? (
+                    <Check size={16} color="#2a1530" strokeWidth={2.6} />
+                  ) : (
+                    <Text style={styles.addPillText}>추가</Text>
+                  )}
                 </View>
               </Pressable>
             );
